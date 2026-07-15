@@ -1,0 +1,47 @@
+name: Populate PR Description From Commits
+
+on:
+  pull_request:
+    types: [opened]
+
+# This block elevates the temporary runner token so it can write to the PR
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  fill-description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all commits so it can read the log
+
+      - name: Update PR Description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Uses the repository's built-in token
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # Initialize the body variable
+          PR_BODY="### Commits in this Pull Request:\n\n"
+
+          # 1. Fetch commits between base and head. 
+          # Use %s for the subject (header) and %b for the body (description).
+          # We use a special delimiter [COMMIT_DELIMITER] to separate them cleanly.
+          git log origin/${{ github.event.pull_request.base.ref }}..HEAD --reverse --pretty=format:"%s[COMMIT_DELIMITER]%b[COMMIT_END]" | while IFS= read -r line || [ -n "$line" ]; do
+            
+            # Skip empty lines between commits
+            if [ -z "$line" ]; then continue; fi
+            
+            # Extract the commit header and body
+            HEADER=$(echo "$line" | sed 's/\[COMMIT_DELIMITER\].*//')
+            BODY=$(echo "$line" | sed 's/.*\[COMMIT_DELIMITER\]//' | sed 's/\[COMMIT_END\]//')
+
+            # Append the collapsible markdown structure
+            PR_BODY="$PR_BODY<details>\n<summary><b>$HEADER</b></summary>\n\n${BODY:-*No description provided.*}\n\n</details>\n\n"
+          done
+
+          # 2. Use GitHub's native CLI to edit the PR description automatically
+          # echo -e parses the \n newlines correctly
+          echo -e "$PR_BODY" | gh pr edit "$PR_URL" --body-file -
