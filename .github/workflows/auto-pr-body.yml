@@ -1,0 +1,34 @@
+name: Populate PR Description From Commits
+
+on:
+  pull_request:
+    types: [opened]
+
+# This block elevates the temporary runner token so it can write to the PR
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  fill-description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all commits so it can read the log
+
+      - name: Update PR Description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Uses the repository's built-in token
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # 1. Fetch the commit logs between the base branch and the head branch
+          # Formatting them as a clean markdown bulleted list
+          COMMIT_LOGS=$(git log origin/${{ github.event.pull_request.base.ref }}..HEAD --oneline --pretty=format:"* %s")
+          
+          # 2. Add a standard header to your PR body
+          PR_BODY="### Commits in this Pull Request:\n\n$COMMIT_LOGS"
+          
+          # 3. Use GitHub's native CLI to edit the PR description automatically
+          gh pr edit "$PR_URL" --body "$PR_BODY"
